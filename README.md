@@ -115,6 +115,7 @@ views. It preserves the same source and claim boundaries as the CLI.
   scikit-learn analysis, diagnostics, chart builders, and CLI.
 - `tests/` — synthetic source fixtures and deterministic unit tests.
 - `notebooks/bls_macro_clustering.py` — reactive marimo analysis.
+- `docs/README.md` — project knowledge map and maintenance contract.
 - `docs/data-sources/` — source terms, provenance, and claim boundaries.
 - `docs/experiments/` — dated executions and bounded interpretations.
 - `docs/research/` — dated Python ecosystem and technique choices.
