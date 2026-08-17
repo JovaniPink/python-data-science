@@ -39,6 +39,8 @@ trading signals, or financial advice.
 
 See the [dated Python ecosystem brief](docs/research/python-data-science-2026.md)
 for the version evidence and design choices.
+The [documentation guide](docs/README.md) provides a review path through the
+research brief, source record, executed run, and sibling Elixir replication.
 
 ## Data source and rights boundary
 
@@ -118,6 +120,7 @@ views. It preserves the same source and claim boundaries as the CLI.
 - `docs/data-sources/` — source terms, provenance, and claim boundaries.
 - `docs/experiments/` — dated executions and bounded interpretations.
 - `docs/research/` — dated Python ecosystem and technique choices.
+- `docs/README.md` — documentation map and cross-language replication boundary.
 - `.github/workflows/ci.yml` — locked Python 3.13/3.14 quality matrix.
 
 ## License
