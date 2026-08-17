@@ -51,6 +51,10 @@ Cross-language agreement here is a useful implementation check, not evidence
 that the clusters are causal, optimal, stable under new data, or economically
 real.
 
+The sibling
+[Elixir run record](https://github.com/JovaniPink/elixir-data-science/blob/main/docs/experiments/bls-macro-clustering.md)
+contains the independently executed comparison and its Elixir runtime manifest.
+
 ## Sensitivity diagnostics
 
 Each row repeats k-means++ with 20 starts under seeds `0`, `1`, `2`, `42`, and
