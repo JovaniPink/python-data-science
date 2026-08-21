@@ -20,3 +20,30 @@ scikit-learn clustering, Vega-Altair views, and a marimo notebook.
   and synthetic fixtures in automated tests.
 - Keep generated outputs, local environments, and credentials out of Git.
 - Stage explicit files and preserve unrelated work.
+
+## Quality gate
+
+Run the locked repository contract before review:
+
+```bash
+uv sync --locked
+uv run --locked ruff format --check .
+uv run --locked ruff check .
+uv run --locked mypy src
+uv run --locked pytest
+uv run --locked marimo check --strict notebooks/bls_macro_clustering.py
+uv build --no-build-isolation --clear
+uv export --quiet --locked --no-dev --no-emit-project --format requirements-txt \
+  --output-file /tmp/python-data-science-runtime.txt
+uv run --locked pip-audit --disable-pip --require-hashes \
+  -r /tmp/python-data-science-runtime.txt
+uv export --quiet --locked --all-groups --no-emit-project \
+  --format requirements-txt --output-file /tmp/python-data-science-all.txt
+uv run --locked pip-audit --disable-pip --require-hashes \
+  -r /tmp/python-data-science-all.txt
+```
+
+The build uses the synchronized, locked `uv_build` backend. The dependency audits
+cover the exact exported runtime graph and the complete development/build graph.
+They are not a source-code, operating-system, container, or live-data security
+assessment.

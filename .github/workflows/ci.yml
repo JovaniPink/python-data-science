@@ -30,3 +30,16 @@ jobs:
       - run: uv run --locked mypy src
       - run: uv run --locked pytest
       - run: uv run --locked marimo check --strict notebooks/bls_macro_clustering.py
+      - run: uv build --no-build-isolation --clear
+      - name: Audit locked dependencies
+        run: |
+          uv export --quiet --locked --no-dev --no-emit-project \
+            --format requirements-txt \
+            --output-file /tmp/python-data-science-runtime.txt
+          uv run --locked pip-audit --disable-pip --require-hashes \
+            -r /tmp/python-data-science-runtime.txt
+          uv export --quiet --locked --all-groups --no-emit-project \
+            --format requirements-txt \
+            --output-file /tmp/python-data-science-all.txt
+          uv run --locked pip-audit --disable-pip --require-hashes \
+            -r /tmp/python-data-science-all.txt

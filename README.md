@@ -21,7 +21,7 @@ trading signals, or financial advice.
 
 ## Why this is a 2026 Python stack
 
-- Python 3.14.6 is the pinned default; CI also covers the maintained Python
+- Python 3.14.7 is the pinned default; CI also covers the maintained Python
   3.13 line.
 - uv manages the project, standardized dependency groups, and a committed
   cross-platform lockfile.
@@ -64,7 +64,7 @@ committed.
 Install [uv](https://docs.astral.sh/uv/) and run:
 
 ```bash
-uv python install 3.14.6
+uv python install 3.14.7
 uv sync --locked
 ```
 
@@ -79,10 +79,30 @@ uv run --locked ruff check .
 uv run --locked mypy src
 uv run --locked pytest
 uv run --locked marimo check --strict notebooks/bls_macro_clustering.py
+uv build --no-build-isolation --clear
+uv export --quiet --locked --no-dev --no-emit-project --format requirements-txt \
+  --output-file /tmp/python-data-science-runtime.txt
+uv run --locked pip-audit --disable-pip --require-hashes \
+  -r /tmp/python-data-science-runtime.txt
+uv export --quiet --locked --all-groups --no-emit-project \
+  --format requirements-txt --output-file /tmp/python-data-science-all.txt
+uv run --locked pip-audit --disable-pip --require-hashes \
+  -r /tmp/python-data-science-all.txt
 ```
 
 Automated tests use only synthetic BLS-shaped responses. A BLS outage or
 revision therefore cannot silently change CI.
+
+The audit input is exported from the committed lock without development tools or
+the repository package itself. `pip-audit --disable-pip --require-hashes` rejects
+unpinned or unhashed inputs, avoids a second dependency resolution, and fails CI on
+known runtime advisories; it does not audit source code, operating-system packages,
+or the security of the upstream package index.
+The second export includes every development and build dependency so toolchain
+advisories remain visible separately from the deployable runtime graph.
+The build backend is also part of the development lock, so
+`uv build --no-build-isolation` packages with the synchronized `uv_build` version
+instead of resolving an untracked backend environment.
 
 ## Run the live analysis
 
