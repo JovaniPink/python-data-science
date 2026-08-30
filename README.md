@@ -121,6 +121,21 @@ verified output from the code and live notebook. The August 16, 2026 Python
 run produced 227 observations, retained the missing October 2025 records, and
 reproduced the Elixir profile groups up to arbitrary cluster-label permutation.
 
+## Run the regional expert ensemble
+
+Use the shared, hash-verified source bundle produced by the Elixir admission
+boundary. Generated artifacts remain under ignored paths.
+
+```bash
+uv run --locked regional-expert-ensemble \
+  --source-bundle data/regional/regional-source-bundle.v1.json \
+  --output-dir artifacts/regional-ensemble/python/v1
+```
+
+This is a point-in-time historical backtest, not a causal, recession, trading,
+or financial-advice claim. See the
+[regional ensemble contract](docs/experiments/regional-expert-ensemble.md).
+
 ## Open the reactive notebook
 
 ```bash

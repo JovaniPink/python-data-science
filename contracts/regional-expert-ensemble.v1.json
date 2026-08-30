@@ -1,0 +1,44 @@
+{
+  "schema_version": "regional-expert-ensemble.v1",
+  "research_cutoff": "2026-08-29",
+  "population": {
+    "state_fips": ["01", "02", "04", "05", "06", "08", "09", "10", "11", "12", "13", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40", "41", "42", "44", "45", "46", "47", "48", "49", "50", "51", "53", "54", "55", "56"],
+    "exclude_territories": true,
+    "census_divisions": {
+      "01": "east_south_central", "02": "pacific", "04": "mountain", "05": "west_south_central", "06": "pacific", "08": "mountain", "09": "new_england", "10": "south_atlantic", "11": "south_atlantic", "12": "south_atlantic", "13": "south_atlantic", "15": "pacific", "16": "mountain", "17": "east_north_central", "18": "east_north_central", "19": "west_north_central", "20": "west_north_central", "21": "east_south_central", "22": "west_south_central", "23": "new_england", "24": "south_atlantic", "25": "new_england", "26": "east_north_central", "27": "west_north_central", "28": "east_south_central", "29": "west_north_central", "30": "mountain", "31": "west_north_central", "32": "mountain", "33": "new_england", "34": "middle_atlantic", "35": "mountain", "36": "middle_atlantic", "37": "south_atlantic", "38": "west_north_central", "39": "east_north_central", "40": "west_south_central", "41": "pacific", "42": "middle_atlantic", "44": "new_england", "45": "south_atlantic", "46": "west_north_central", "47": "east_south_central", "48": "west_south_central", "49": "mountain", "50": "new_england", "51": "south_atlantic", "53": "pacific", "54": "south_atlantic", "55": "east_north_central", "56": "mountain"
+    }
+  },
+  "time": {
+    "source_start": "2017Q1",
+    "first_forecast_origin": "2020Q1",
+    "last_forecast_origin": "2025Q3",
+    "forecast_horizon_quarters": 1,
+    "origin_clock": "calendar_quarter_end",
+    "minimum_training_quarters": 8
+  },
+  "target": {
+    "source": "qcew",
+    "measure": "third_month_employment",
+    "formula": "100 * ln(final(target_quarter) / final(target_quarter_minus_4))",
+    "revision_policy": "final_for_scoring_only"
+  },
+  "sources": {
+    "qcew": {"publisher": "U.S. Bureau of Labor Statistics", "required_host": "bls.gov", "vintage_policy": "latest_release_on_or_before_origin"},
+    "bea": {"publisher": "U.S. Bureau of Economic Analysis", "required_host": "bea.gov", "datasets": ["SQGDP9", "SQINC1"], "vintage_policy": "archived_release_on_or_before_origin"},
+    "fhfa": {"publisher": "Federal Housing Finance Agency", "required_host": "fhfa.gov", "series": "seasonally_adjusted_purchase_only_state_hpi", "vintage_policy": "archived_quarterly_report"}
+  },
+  "experts": [
+    {"id": "labor", "numeric_features": ["qcew_employment_yoy", "qcew_employment_qoq", "qcew_employment_yoy_lag1"]},
+    {"id": "business", "numeric_features": ["qcew_establishments_yoy", "qcew_total_wages_yoy"]},
+    {"id": "growth", "numeric_features": ["bea_real_gdp_yoy", "bea_real_gdp_qoq", "bea_personal_income_yoy", "bea_personal_income_qoq"]},
+    {"id": "housing", "numeric_features": ["fhfa_hpi_qoq", "fhfa_hpi_yoy"]}
+  ],
+  "controls": ["state_fips", "target_quarter_number"],
+  "ridge": {"alphas": [0.01, 0.1, 1.0, 10.0, 100.0], "solver": "cholesky", "float": "float64", "inner_validation_quarters": 4, "tie_break": "larger_alpha"},
+  "stack": {"step": 0.05, "objective": "mean_squared_error", "constraints": "nonnegative_sum_one", "tie_break": "lexicographic_expert_order"},
+  "neural_gate": {"seed": 42, "hidden_units": 16, "activation": "tanh", "output": "softmax", "optimizer": "adam", "learning_rate": 0.01, "max_epochs": 500, "validation_quarters": 4, "patience": 30, "minimum_oof_quarters": 8},
+  "serialization": {"encoding": "utf-8", "line_ending": "lf", "csv_header": true, "row_order": ["forecast_origin", "state_fips"], "float_format": ".10f", "json": "sorted_keys_compact_lf"},
+  "tolerances": {"deterministic_absolute": 0.000001, "neural_weight_sum_absolute": 0.000001},
+  "claims": {"description": "point-in-time historical backtest", "causal": false, "recession": false, "trading": false, "financial_advice": false},
+  "excluded_v1": ["eia", "fdic", "treasury", "sec", "cftc", "bis", "world_bank", "live_serving", "recession_classification", "trading_signals", "financial_advice"]
+}
