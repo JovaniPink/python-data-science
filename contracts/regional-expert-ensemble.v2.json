@@ -1,0 +1,39 @@
+{
+  "schema_version": "regional-expert-ensemble.v2",
+  "research_cutoff": "2026-08-29",
+  "compatibility": {"preserves_contract": "regional-expert-ensemble.v1", "v1_sha256": "c1693dbe606629fcc1f63eb7a915f14219c7b2bc580ea85afc72371957f651c9"},
+  "population": {"state_count": 51, "includes": "50 states and Washington, DC", "excludes_territories": true, "order": "two_digit_state_fips"},
+  "time": {"requested_first_forecast_origin": "2020Q1", "last_forecast_origin": "2025Q3", "forecast_horizon_quarters": 1, "origin_clock": "calendar_quarter_end", "minimum_training_quarters": 8, "source_history_policy": "derive_first_eligible_origin_from_complete_point_in_time_features"},
+  "target": {"source": "qcew", "measure": "third_month_employment", "formula": "100 * ln(final(target_quarter) / final(target_quarter_minus_4))", "revision_policy": "final_for_scoring_only"},
+  "bundle": {"schema_version": "regional-source-bundle.v2", "path_policy": "relative_declared_regular_files_only", "reject": ["absolute_paths", "path_traversal", "symlink_escape", "undeclared_files", "hash_mismatch", "unknown_release", "future_data"]},
+  "profiles": {
+    "core": {"experts": ["labor", "qcew_business", "growth", "housing"], "gate_context": []},
+    "leading_signals": {"experts": ["labor", "qcew_business", "industry", "formation", "construction", "growth", "housing"], "gate_context": ["treasury"]},
+    "energy_prospective": {"active": false, "experts": ["energy"]},
+    "labor_flows_candidate": {"active": false, "experts": ["labor_flows"]},
+    "credit_candidate": {"active": false, "experts": ["credit"]}
+  },
+  "expert_order": ["labor", "qcew_business", "industry", "formation", "construction", "growth", "housing", "energy", "labor_flows", "credit"],
+  "experts": {
+    "labor": ["qcew_employment_yoy", "qcew_employment_qoq", "qcew_employment_yoy_lag1"],
+    "qcew_business": ["qcew_establishments_yoy", "qcew_total_wages_yoy"],
+    "industry": ["sector_employment_growth", "sector_employment_growth_lag1", "sector_employment_share", "weighted_momentum", "concentration_hhi", "growth_dispersion", "positive_growth_breadth", "published_data_coverage"],
+    "formation": ["business_applications_3m_growth", "high_propensity_applications_3m_growth", "high_propensity_share", "corporation_share", "planned_wage_share"],
+    "construction": ["total_permits_3m_growth", "single_family_permits_3m_growth", "five_plus_permits_3m_growth", "single_family_share", "multifamily_share"],
+    "growth": ["bea_real_gdp_yoy", "bea_real_gdp_qoq", "bea_personal_income_yoy", "bea_personal_income_qoq"],
+    "housing": ["fhfa_hpi_qoq", "fhfa_hpi_yoy"],
+    "energy": ["electricity_sales_growth", "industrial_sales_growth", "generation_growth", "price_growth", "sector_shares", "fuel_mix_exposure"],
+    "labor_flows": ["hires_rate", "separations_rate", "job_creation_rate", "job_destruction_rate", "earnings_growth"],
+    "credit": ["deposit_growth", "loan_growth", "commercial_and_industrial_exposure", "commercial_real_estate_exposure", "delinquency", "capital"]
+  },
+  "treasury_context": ["yield_3_month", "yield_2_year", "yield_10_year", "spread_10_year_3_month", "spread_10_year_2_year", "change_20_trading_days", "curve_methodology_break"],
+  "monthly_policy": {"aggregation": "trailing_three_complete_months", "release_cutoff": "public_on_or_before_origin", "missing": "reject_no_zero_fill_no_interpolation"},
+  "ridge": {"alphas": [0.01, 0.1, 1.0, 10.0, 100.0], "solver": "cholesky", "float": "float64", "standardization": "training_rows_only", "validation": "expanding_time_ordered", "tie_break": "larger_alpha"},
+  "screened_stack": {"model_id": "screened_convex_stack", "rank_by": "prior_oof_mae", "maximum_experts": 4, "rank_tie_break": "contract_expert_order", "step": 0.05, "objective": "mean_squared_error", "constraints": "nonnegative_sum_one", "grid_tie_break": "lexicographic_expert_order", "unselected_weight": 0.0},
+  "neural_gate": {"role": "challenger", "seed": 42, "hidden_units": 16, "activation": "tanh", "output": "profile_width_softmax", "optimizer": "adam", "learning_rate": 0.01, "max_epochs": 500, "validation_quarters": 4, "patience": 30, "minimum_oof_quarters": 8},
+  "artifacts": ["regional-panel.v2.csv", "regional-folds.v2.csv", "regional-predictions.v2.csv", "regional-expert-contributions.v2.csv", "regional-model-index.v2.json", "regional-run-manifest.v2.json"],
+  "serialization": {"encoding": "utf-8", "line_ending": "lf", "csv_header": true, "float_format": ".10f", "json": "sorted_keys_compact_lf"},
+  "tolerances": {"deterministic_absolute": 0.000001, "neural_weight_sum_absolute": 0.000001},
+  "claims": {"required_description": "point-in-time historical backtest", "causal": false, "recession": false, "trading": false, "financial_advice": false},
+  "excluded": ["live_serving", "deployment", "recession_classification", "causal_claims", "trading_signals", "financial_advice"]
+}
