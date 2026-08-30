@@ -13,12 +13,15 @@ import pytest
 
 from python_data_science.regional import (
     EXPERT_IDS,
+    _metrics,
+    _trailing_mae_matrix,
     build_folds,
     build_panel,
     canonical_csv,
     contract_sha256,
     fit_neural_gate,
     load_contract,
+    predict_neural_gate,
     quarter_add,
     quarter_end,
     search_convex_stack,
@@ -62,8 +65,24 @@ def synthetic_bundle(tmp_path: Path) -> dict[str, object]:
     qcew: list[dict[str, object]] = []
     bea: list[dict[str, object]] = []
     fhfa: list[dict[str, object]] = []
+    fhfa_layout_checks: list[dict[str, object]] = []
     for quarter_index, quarter in enumerate(_quarters("2015Q1", "2025Q4")):
         end = quarter_end(quarter)
+        report_url = f"https://www.fhfa.gov/reports/house-price-index/{quarter}"
+        fhfa_release = (end + timedelta(days=60)).isoformat()
+        fhfa_layout_checks.append(
+            {
+                "report_url": report_url,
+                "release_date": fhfa_release,
+                "layout_era": "synthetic_v1",
+                "pdftotext_version": "pdftotext -layout synthetic 1.0",
+                "row_count": 51,
+                "expected_headings": True,
+                "numeric_values": True,
+                "warning_text_preserved": True,
+                "manual_samples_verified": True,
+            }
+        )
         for state_index, state in enumerate(state_fips):
             scale = 100_000.0 + state_index * 1_000.0
             trend = 1.0 + quarter_index * 0.008 + state_index * 0.0001
@@ -101,8 +120,8 @@ def synthetic_bundle(tmp_path: Path) -> dict[str, object]:
                 {
                     "state_fips": state,
                     "observation_quarter": quarter,
-                    "release_date": (end + timedelta(days=60)).isoformat(),
-                    "report_url": f"https://www.fhfa.gov/reports/house-price-index/{quarter}",
+                    "release_date": fhfa_release,
+                    "report_url": report_url,
                     "hpi_qoq": 0.5 + state_index * 0.001 + quarter_index * 0.002,
                     "hpi_yoy": 2.0 + state_index * 0.002 + quarter_index * 0.004,
                 }
@@ -112,13 +131,15 @@ def synthetic_bundle(tmp_path: Path) -> dict[str, object]:
         "schema_version": "regional-source-bundle.v1",
         "contract_sha256": contract_sha256(),
         "research_cutoff": "2026-08-29",
-        "extraction_tools": {"pdftotext": "synthetic fixture"},
+        "extraction_tools": {"pdftotext": "pdftotext -layout synthetic 1.0"},
+        "fhfa_layout_checks": fhfa_layout_checks,
         "sources": sources,
         "observations": {"qcew": qcew, "bea": bea, "fhfa": fhfa},
     }
 
 
 def test_contract_hash_and_source_receipts_fail_closed(tmp_path: Path) -> None:
+    assert contract_sha256() == "c1693dbe606629fcc1f63eb7a915f14219c7b2bc580ea85afc72371957f651c9"
     bundle = synthetic_bundle(tmp_path)
     validate_source_bundle(bundle)
 
@@ -130,6 +151,11 @@ def test_contract_hash_and_source_receipts_fail_closed(tmp_path: Path) -> None:
     broken = json.loads(json.dumps(bundle))
     broken["sources"][1]["sha256"] = "0" * 64
     with pytest.raises(ValueError, match=r"sources\[1\]\.sha256"):
+        validate_source_bundle(broken)
+
+    broken = json.loads(json.dumps(bundle))
+    broken["fhfa_layout_checks"][0]["warning_text_preserved"] = False
+    with pytest.raises(ValueError, match="warning_text_preserved"):
         validate_source_bundle(broken)
 
 
@@ -207,3 +233,44 @@ def test_neural_gate_outputs_structurally_valid_weights() -> None:
     assert np.all((result.weights >= 0.0) & (result.weights <= 1.0))
     assert np.allclose(result.weights.sum(axis=1), 1.0, atol=1.0e-6)
     assert result.epochs <= 500
+
+    with pytest.raises(ValueError, match="four-column"):
+        predict_neural_gate(result, expert_predictions[:, :3], trailing_mae, context)
+
+
+def test_trailing_mae_never_uses_other_states_from_the_same_quarter() -> None:
+    predictions = np.asarray(
+        [[2.0, 4.0, 6.0, 8.0], [4.0, 6.0, 8.0, 10.0], [9.0, 9.0, 9.0, 9.0]],
+        dtype=np.float64,
+    )
+    outcomes = np.asarray([1.0, 3.0, 8.0], dtype=np.float64)
+    trailing = _trailing_mae_matrix(predictions, outcomes, ["2020Q1", "2020Q1", "2020Q2"])
+
+    assert np.array_equal(trailing[0], np.ones(4))
+    assert np.array_equal(trailing[1], np.ones(4))
+    assert np.allclose(trailing[2], np.asarray([1.0, 3.0, 5.0, 7.0]))
+
+
+def test_metrics_report_every_required_group_and_even_median() -> None:
+    rows = [
+        {
+            "forecast_origin": "2020Q1",
+            "state_fips": state,
+            "census_division": "new_england",
+            "model_id": "zero",
+            "error": error,
+            "final_outcome": 1.0,
+            "interval_lower_80": 0.0,
+            "interval_upper_80": 2.0,
+        }
+        for state, error in (("09", 1.0), ("25", 3.0))
+    ]
+    metrics = _metrics(rows)
+
+    assert set(metrics) == {
+        "overall",
+        "by_forecast_origin",
+        "by_state",
+        "by_census_division",
+    }
+    assert metrics["overall"]["zero"]["median_absolute_error"] == 2.0

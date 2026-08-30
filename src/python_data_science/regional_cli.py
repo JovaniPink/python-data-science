@@ -18,12 +18,13 @@ def run(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     manifest = run_experiment(args.source_bundle, args.output_dir)
     metrics = manifest["metrics"]
+    overall = metrics.get("overall", {}) if isinstance(metrics, dict) else {}
     print("Regional expert ensemble: point-in-time historical backtest")
     print("Population: 50 states plus Washington, DC; territories excluded")
     print("Forecast origins: 2020Q1 through 2025Q3")
     print("Target: next-quarter final QCEW third-month employment year-over-year log growth")
     print(f"Contract SHA-256: {manifest['contract_sha256']}")
-    print(f"Metrics: {metrics}")
+    print(f"Overall metrics: {overall}")
     print(f"Artifacts: {args.output_dir}")
     print("This is not a causal, recession, trading, or financial-advice claim.")
     return 0

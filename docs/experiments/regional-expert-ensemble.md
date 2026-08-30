@@ -32,3 +32,11 @@ multi-vintage bundle spanning 2015 Q1 through 2025 Q4. The Elixir no-write
 verifier reported `MATCH` for exact panel/fold bytes, deterministic predictions
 within `1.0e-6`, exact stack weights, and neural structural invariants. This is
 contract evidence, not a real-world performance claim.
+
+Prediction artifacts include the four expert rows, all comparators, model-specific
+empirical 80 percent intervals, exact expert weights, and per-expert
+contributions. The manifest reports overall metrics and results by forecast
+origin, state, and Census division, together with artifact receipts,
+environment, Git state, settings, exclusions, and claim flags. FHFA input is
+admitted only when its archived-report layout checks and manual sample approval
+are recorded by the Elixir source boundary.

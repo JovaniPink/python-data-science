@@ -7,19 +7,23 @@ import hashlib
 import io
 import json
 import math
+import platform
+import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Final, cast
+from typing import Final, TypedDict, cast
 from urllib.parse import urlparse
 
 import numpy as np
 import numpy.typing as npt
+import sklearn
 from sklearn.linear_model import Ridge
 
-EXPERT_IDS: Final = ("labor", "business", "growth", "housing")
-EXPERT_SOURCE_IDS: Final = ("qcew", "bea", "fhfa")
-PANEL_COLUMNS: Final = (
+EXPERT_IDS: Final[tuple[str, str, str, str]] = ("labor", "business", "growth", "housing")
+EXPERT_SOURCE_IDS: Final[tuple[str, str, str]] = ("qcew", "bea", "fhfa")
+PANEL_COLUMNS: Final[tuple[str, ...]] = (
     "forecast_origin",
     "state_fips",
     "target_quarter",
@@ -44,11 +48,44 @@ PANEL_COLUMNS: Final = (
     "outcome_available_date",
     "target_vintage",
 )
+PREDICTION_COLUMNS: Final[tuple[str, ...]] = (
+    "forecast_origin",
+    "state_fips",
+    "target_quarter",
+    "census_division",
+    "model_id",
+    "prediction",
+    "final_outcome",
+    "error",
+    "interval_lower_80",
+    "interval_upper_80",
+    "weight_labor",
+    "weight_business",
+    "weight_growth",
+    "weight_housing",
+    "contribution_labor",
+    "contribution_business",
+    "contribution_growth",
+    "contribution_housing",
+    "alpha",
+)
 
-Json = dict[str, object]
-Row = dict[str, object]
+type JsonScalar = bool | int | float | str | None
+type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
+type Json = dict[str, JsonValue]
+type RowValue = bool | int | float | str
+type Row = dict[str, RowValue]
+type WeightVector = tuple[float, float, float, float]
 FloatArray = npt.NDArray[np.float64]
 IndexArray = npt.NDArray[np.int_]
+
+
+class ArtifactReceipt(TypedDict):
+    """Integrity receipt for one generated artifact."""
+
+    sha256: str
+    byte_count: int
+    row_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +102,28 @@ class NeuralGateResult:
     b1: FloatArray
     w2: FloatArray
     b2: FloatArray
+    validation_index: IndexArray
+
+
+@dataclass(frozen=True, slots=True)
+class OofResult:
+    """Historical predictions that were out of fold for every target row."""
+
+    rows: list[Row]
+    expert_predictions: FloatArray
+    pooled_predictions: FloatArray
+    targets: FloatArray
+
+
+@dataclass(frozen=True, slots=True)
+class ModelForecast:
+    """Predictions and calibration state for one model at one outer origin."""
+
+    model_id: str
+    predictions: FloatArray
+    weights: WeightVector | FloatArray | None
+    alpha: float | str
+    radius: float
 
 
 def repository_root() -> Path:
@@ -97,6 +156,8 @@ def quarter_add(value: str, amount: int) -> str:
 
 
 def quarter_end(value: str) -> date:
+    if len(value) != 6 or value[4] != "Q" or value[5] not in "1234" or not value[:4].isdigit():
+        raise ValueError(f"invalid quarter: {value!r}")
     year = int(value[:4])
     quarter = int(value[5])
     return (date(year, 3, 31), date(year, 6, 30), date(year, 9, 30), date(year, 12, 31))[
@@ -166,6 +227,53 @@ def validate_source_bundle(bundle: Json, *, contract: Json | None = None) -> Non
     for source_id in EXPERT_SOURCE_IDS:
         rows = _list_of_dicts(observations.get(source_id), f"observations.{source_id}")
         _validate_observations(source_id, rows, set(state_fips), cutoff)
+    _validate_fhfa_layout_checks(bundle, observations, cutoff)
+
+
+def _validate_fhfa_layout_checks(
+    bundle: Json, observations: dict[str, JsonValue], cutoff: date
+) -> None:
+    """Require one successful layout and manual-sample receipt per FHFA report."""
+    extraction_tools = bundle.get("extraction_tools")
+    if not isinstance(extraction_tools, dict):
+        raise ValueError("extraction_tools: expected object")
+    pdftotext = extraction_tools.get("pdftotext")
+    if not isinstance(pdftotext, str) or not pdftotext:
+        raise ValueError("extraction_tools.pdftotext: expected nonempty version")
+
+    checks = _list_of_dicts(bundle.get("fhfa_layout_checks"), "fhfa_layout_checks")
+    observed_reports = {
+        _required_text(row, "report_url", "observations.fhfa")
+        for row in _list_of_dicts(observations.get("fhfa"), "observations.fhfa")
+    }
+    checked_reports: set[str] = set()
+    for index, check in enumerate(checks):
+        path = f"fhfa_layout_checks[{index}]"
+        report_url = _required_text(check, "report_url", path)
+        if report_url in checked_reports:
+            raise ValueError(f"{path}.report_url: duplicate layout check")
+        host = (urlparse(report_url).hostname or "").lower()
+        if not (host == "fhfa.gov" or host.endswith(".fhfa.gov")):
+            raise ValueError(f"{path}.report_url: host must be fhfa.gov")
+        release_date = date.fromisoformat(_required_text(check, "release_date", path))
+        if release_date > cutoff:
+            raise ValueError(f"{path}.release_date: exceeds research cutoff")
+        _required_text(check, "layout_era", path)
+        if check.get("pdftotext_version") != pdftotext:
+            raise ValueError(f"{path}.pdftotext_version: does not match extraction tool")
+        if check.get("row_count") != 51:
+            raise ValueError(f"{path}.row_count: expected 51")
+        for flag in (
+            "expected_headings",
+            "numeric_values",
+            "warning_text_preserved",
+            "manual_samples_verified",
+        ):
+            if check.get(flag) is not True:
+                raise ValueError(f"{path}.{flag}: expected true")
+        checked_reports.add(report_url)
+    if checked_reports != observed_reports:
+        raise ValueError("fhfa_layout_checks: must cover every admitted FHFA report")
 
 
 def _validate_observations(
@@ -562,6 +670,7 @@ def fit_neural_gate(
         best[1],
         best[2],
         best[3],
+        validation_index,
     )
 
 
@@ -575,7 +684,15 @@ def predict_neural_gate(
     experts = np.asarray(expert_predictions, dtype=np.float64)
     maes = np.asarray(trailing_mae, dtype=np.float64)
     context_values = np.asarray(context, dtype=np.float64)
+    if experts.ndim != 2 or experts.shape[1] != 4 or maes.shape != experts.shape:
+        raise ValueError("neural prediction requires matching four-column expert and MAE matrices")
+    if context_values.ndim != 2 or context_values.shape[0] != experts.shape[0]:
+        raise ValueError("neural prediction context rows must match expert rows")
+    if not all(np.isfinite(value).all() for value in (experts, maes, context_values)):
+        raise ValueError("neural prediction inputs must be finite")
     features = np.concatenate((experts, maes, context_values), axis=1)
+    if features.shape[1] != result.feature_mean.shape[0]:
+        raise ValueError("neural prediction feature width does not match fitted gate")
     features = (features - result.feature_mean) / result.feature_scale
     weights, _hidden = _gate_forward(features, result.w1, result.b1, result.w2, result.b2)
     return np.sum(weights * experts, axis=1), weights
@@ -596,8 +713,7 @@ def run_experiment(bundle_path: Path, output_dir: Path) -> Json:
     panel_bytes = canonical_csv(panel, columns=PANEL_COLUMNS).encode()
     fold_columns = tuple(folds[0])
     fold_bytes = canonical_csv(folds, columns=fold_columns).encode()
-    prediction_columns = tuple(predictions[0])
-    prediction_bytes = canonical_csv(predictions, columns=prediction_columns).encode()
+    prediction_bytes = canonical_csv(predictions, columns=PREDICTION_COLUMNS).encode()
     paths = {
         "regional-panel.v1.csv": panel_bytes,
         "regional-folds.v1.csv": fold_bytes,
@@ -605,38 +721,72 @@ def run_experiment(bundle_path: Path, output_dir: Path) -> Json:
     }
     for name, payload in paths.items():
         (output_dir / name).write_bytes(payload)
+    row_counts = {
+        "regional-panel.v1.csv": len(panel),
+        "regional-folds.v1.csv": len(folds),
+        "regional-predictions.v1.csv": len(predictions),
+    }
+    contract = load_contract()
     manifest: Json = {
         "schema_version": "regional-run-manifest.v1",
         "contract_sha256": contract_sha256(),
         "source_bundle_sha256": hashlib.sha256(bundle_path.read_bytes()).hexdigest(),
         "artifacts": {
-            name: {"sha256": hashlib.sha256(payload).hexdigest(), "byte_count": len(payload)}
+            name: cast(
+                Json,
+                ArtifactReceipt(
+                    sha256=hashlib.sha256(payload).hexdigest(),
+                    byte_count=len(payload),
+                    row_count=row_counts[name],
+                ),
+            )
             for name, payload in paths.items()
         },
+        "environment": {
+            "implementation": "python",
+            "python": platform.python_version(),
+            "platform": platform.platform(),
+            "numpy": np.__version__,
+            "scikit_learn": sklearn.__version__,
+        },
+        "git": _git_state(repository_root()),
         "settings": {
-            "ridge_solver": "cholesky",
-            "alphas": [0.01, 0.1, 1.0, 10.0, 100.0],
-            "stack_step": 0.05,
-            "neural_seed": 42,
+            "ridge": contract["ridge"],
+            "stack": contract["stack"],
+            "neural_gate": contract["neural_gate"],
+            "intervals": contract["intervals"],
         },
         "metrics": _metrics(predictions),
-        "exclusions": load_contract()["excluded_v1"],
-        "claims": {
-            "description": "point-in-time historical backtest",
-            "causal": False,
-            "recession": False,
-            "trading": False,
-            "financial_advice": False,
-        },
+        "exclusions": contract["excluded_v1"],
+        "claims": contract["claims"],
     }
     manifest_bytes = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
     (output_dir / "regional-run-manifest.v1.json").write_bytes(manifest_bytes)
     return manifest
 
 
+def _git_state(root: Path) -> Json:
+    """Read the exact local Git head and whether tracked or untracked files differ."""
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return {"head": head, "dirty": bool(status), "executable": sys.executable}
+
+
 def _backtest(panel: list[Row], folds: list[Row]) -> list[Row]:
     fold_origins = sorted({cast(str, row["outer_origin"]) for row in folds})
-    all_oof_rows, all_oof_matrix, all_oof_targets = _oof_predictions(panel)
+    all_oof = _oof_predictions(panel)
     panel_by_key = {
         (cast(str, row["forecast_origin"]), cast(str, row["state_fips"])): row for row in panel
     }
@@ -671,51 +821,103 @@ def _backtest(panel: list[Row], folds: list[Row]) -> list[Row]:
         pooled = _ridge_predict(train, forecast, pooled_features, pooled_alpha)
         oof_indexes = [
             index
-            for index, row in enumerate(all_oof_rows)
+            for index, row in enumerate(all_oof.rows)
             if cast(str, row["forecast_origin"]) < outer_origin
             and date.fromisoformat(cast(str, row["outcome_available_date"]))
             <= quarter_end(outer_origin)
         ]
-        oof_rows = [all_oof_rows[index] for index in oof_indexes]
-        oof_matrix = all_oof_matrix[oof_indexes]
-        oof_targets = all_oof_targets[oof_indexes]
-        stack_weights: tuple[float, ...]
-        inverse_weights: tuple[float, ...]
+        oof_rows = [all_oof.rows[index] for index in oof_indexes]
+        oof_matrix = all_oof.expert_predictions[oof_indexes]
+        oof_pooled = all_oof.pooled_predictions[oof_indexes]
+        oof_targets = all_oof.targets[oof_indexes]
+        stack_weights: WeightVector
+        inverse_weights: WeightVector
         if len(oof_rows) == 0:
             stack_weights = (0.25, 0.25, 0.25, 0.25)
             inverse_weights = stack_weights
-            residual_radius = 0.0
+            reporting = cast(Json, load_contract()["reporting"])
+            radii = dict.fromkeys(cast(list[str], reporting["models"]), 0.0)
         else:
-            stack_weights = search_convex_stack(oof_matrix, oof_targets)
+            stack_weights = cast(WeightVector, search_convex_stack(oof_matrix, oof_targets))
             expert_mae = np.mean(np.abs(oof_matrix - oof_targets[:, None]), axis=0)
             inverse = 1.0 / np.maximum(expert_mae, 1.0e-12)
-            inverse_weights = tuple(float(value) for value in inverse / inverse.sum())
-            oof_stack = oof_matrix @ np.asarray(stack_weights)
-            residual_radius = float(np.quantile(np.abs(oof_stack - oof_targets), 0.8))
+            inverse_weights = cast(
+                WeightVector, tuple(float(value) for value in inverse / inverse.sum())
+            )
+            radii = {
+                expert_id: _empirical_radius(oof_matrix[:, index], oof_targets)
+                for index, expert_id in enumerate(EXPERT_IDS)
+            }
+            radii.update(
+                {
+                    "zero": _empirical_radius(np.zeros(len(oof_targets)), oof_targets),
+                    "latest_qcew_yoy": _empirical_radius(
+                        np.asarray(
+                            [float(cast(float, row["qcew_employment_yoy"])) for row in oof_rows]
+                        ),
+                        oof_targets,
+                    ),
+                    "pooled_ridge": _empirical_radius(oof_pooled, oof_targets),
+                    "equal_weight": _empirical_radius(oof_matrix.mean(axis=1), oof_targets),
+                    "inverse_mae": _empirical_radius(
+                        oof_matrix @ np.asarray(inverse_weights), oof_targets
+                    ),
+                    "convex_stack": _empirical_radius(
+                        oof_matrix @ np.asarray(stack_weights), oof_targets
+                    ),
+                }
+            )
         equal = forecast_matrix.mean(axis=1)
         inverse_prediction = forecast_matrix @ np.asarray(inverse_weights)
         stack_prediction = forecast_matrix @ np.asarray(stack_weights)
-        model_values: list[tuple[str, FloatArray, tuple[float, ...] | None]] = [
-            ("zero", np.zeros(len(forecast)), None),
-            (
-                "latest_qcew_yoy",
-                np.asarray([float(cast(float, row["qcew_employment_yoy"])) for row in forecast]),
-                None,
-            ),
-            ("pooled_ridge", pooled, None),
-            ("equal_weight", equal, (0.25, 0.25, 0.25, 0.25)),
-            ("inverse_mae", inverse_prediction, inverse_weights),
-            ("convex_stack", stack_prediction, stack_weights),
+        model_values = [
+            ModelForecast(
+                expert_id,
+                expert_forecasts[index],
+                _one_hot(index),
+                selected_alphas[expert_id],
+                radii[expert_id],
+            )
+            for index, expert_id in enumerate(EXPERT_IDS)
         ]
+        model_values.extend(
+            [
+                ModelForecast("zero", np.zeros(len(forecast)), None, "", radii["zero"]),
+                ModelForecast(
+                    "latest_qcew_yoy",
+                    np.asarray(
+                        [float(cast(float, row["qcew_employment_yoy"])) for row in forecast]
+                    ),
+                    None,
+                    "",
+                    radii["latest_qcew_yoy"],
+                ),
+                ModelForecast("pooled_ridge", pooled, None, pooled_alpha, radii["pooled_ridge"]),
+                ModelForecast(
+                    "equal_weight", equal, (0.25, 0.25, 0.25, 0.25), "", radii["equal_weight"]
+                ),
+                ModelForecast(
+                    "inverse_mae",
+                    inverse_prediction,
+                    inverse_weights,
+                    "",
+                    radii["inverse_mae"],
+                ),
+                ModelForecast(
+                    "convex_stack", stack_prediction, stack_weights, "", radii["convex_stack"]
+                ),
+            ]
+        )
         if len({cast(str, row["forecast_origin"]) for row in oof_rows}) >= 8:
-            trailing = _trailing_mae_matrix(oof_matrix, oof_targets)
+            quarter_ids = [cast(str, row["forecast_origin"]) for row in oof_rows]
+            trailing = _trailing_mae_matrix(oof_matrix, oof_targets, quarter_ids)
             oof_context = _context_matrix(oof_rows)
             neural = fit_neural_gate(
                 oof_matrix,
                 trailing,
                 oof_context,
                 oof_targets,
-                quarter_ids=[cast(str, row["forecast_origin"]) for row in oof_rows],
+                quarter_ids=quarter_ids,
             )
             forecast_mae = np.broadcast_to(
                 np.mean(np.abs(oof_matrix - oof_targets[:, None]), axis=0),
@@ -724,35 +926,56 @@ def _backtest(panel: list[Row], folds: list[Row]) -> list[Row]:
             neural_prediction, neural_weights = predict_neural_gate(
                 neural, forecast_matrix, forecast_mae, _context_matrix(forecast)
             )
-            model_values.append(("neural_gate", neural_prediction, None))
-        else:
-            neural_weights = None
+            neural_radius = _empirical_radius(
+                neural.predictions[neural.validation_index],
+                oof_targets[neural.validation_index],
+            )
+            model_values.append(
+                ModelForecast("neural_gate", neural_prediction, neural_weights, "", neural_radius)
+            )
         for row_index, row in enumerate(forecast):
             outcome = float(cast(float, row["target_employment_growth_yoy"]))
-            for model_id, values, weights in model_values:
-                prediction = float(values[row_index])
-                selected_weights = weights
-                if model_id == "neural_gate" and neural_weights is not None:
-                    selected_weights = tuple(float(value) for value in neural_weights[row_index])
+            for model in model_values:
+                prediction = float(model.predictions[row_index])
+                selected_weights: WeightVector | None
+                if isinstance(model.weights, np.ndarray):
+                    selected_weights = cast(
+                        WeightVector, tuple(float(value) for value in model.weights[row_index])
+                    )
+                else:
+                    selected_weights = model.weights
+                contributions = (
+                    cast(
+                        WeightVector,
+                        tuple(
+                            float(forecast_matrix[row_index, index] * selected_weights[index])
+                            for index in range(4)
+                        ),
+                    )
+                    if selected_weights is not None
+                    else None
+                )
                 output.append(
                     {
                         "forecast_origin": outer_origin,
                         "state_fips": row["state_fips"],
                         "target_quarter": row["target_quarter"],
                         "census_division": row["census_division"],
-                        "model_id": model_id,
+                        "model_id": model.model_id,
                         "prediction": prediction,
                         "final_outcome": outcome,
                         "error": prediction - outcome,
-                        "interval_lower_80": prediction - residual_radius,
-                        "interval_upper_80": prediction + residual_radius,
+                        "interval_lower_80": prediction - model.radius,
+                        "interval_upper_80": prediction + model.radius,
                         "weight_labor": selected_weights[0] if selected_weights else "",
                         "weight_business": selected_weights[1] if selected_weights else "",
                         "weight_growth": selected_weights[2] if selected_weights else "",
                         "weight_housing": selected_weights[3] if selected_weights else "",
-                        "alpha": selected_alphas.get(
-                            model_id, pooled_alpha if model_id == "pooled_ridge" else ""
-                        ),
+                        "contribution_labor": contributions[0] if contributions else "",
+                        "contribution_business": contributions[1] if contributions else "",
+                        "contribution_growth": contributions[2] if contributions else "",
+                        "contribution_housing": contributions[3] if contributions else "",
+                        "alpha": model.alpha,
                     }
                 )
     return sorted(
@@ -765,9 +988,22 @@ def _backtest(panel: list[Row], folds: list[Row]) -> list[Row]:
     )
 
 
-def _oof_predictions(train: list[Row]) -> tuple[list[Row], FloatArray, FloatArray]:
+def _one_hot(index: int) -> WeightVector:
+    return cast(WeightVector, tuple(1.0 if position == index else 0.0 for position in range(4)))
+
+
+def _empirical_radius(predictions: FloatArray, outcomes: FloatArray) -> float:
+    residuals = np.sort(np.abs(np.asarray(predictions) - np.asarray(outcomes)))
+    if len(residuals) == 0:
+        return 0.0
+    index = max(0, math.ceil(0.8 * len(residuals)) - 1)
+    return float(residuals[index])
+
+
+def _oof_predictions(train: list[Row]) -> OofResult:
     rows: list[Row] = []
     predictions: list[list[float]] = []
+    pooled_predictions: list[float] = []
     origins = sorted({cast(str, row["forecast_origin"]) for row in train})
     experts = cast(list[Json], load_contract()["experts"])
     for origin in origins:
@@ -789,12 +1025,33 @@ def _oof_predictions(train: list[Row]) -> tuple[list[Row], FloatArray, FloatArra
                 _ridge_predict(prior, validation, features, _select_alpha(prior, features))
             )
         matrix = np.column_stack(expert_values)
+        pooled_features = [
+            feature for expert in experts for feature in cast(list[str], expert["numeric_features"])
+        ]
+        pooled_predictions.extend(
+            _ridge_predict(
+                prior,
+                validation,
+                pooled_features,
+                _select_alpha(prior, pooled_features),
+            ).tolist()
+        )
         rows.extend(validation)
         predictions.extend(matrix.tolist())
     if not rows:
-        return [], np.empty((0, 4), dtype=np.float64), np.empty(0, dtype=np.float64)
+        return OofResult(
+            [],
+            np.empty((0, 4), dtype=np.float64),
+            np.empty(0, dtype=np.float64),
+            np.empty(0, dtype=np.float64),
+        )
     targets = np.asarray([float(cast(float, row["target_employment_growth_yoy"])) for row in rows])
-    return rows, np.asarray(predictions, dtype=np.float64), targets
+    return OofResult(
+        rows,
+        np.asarray(predictions, dtype=np.float64),
+        np.asarray(pooled_predictions, dtype=np.float64),
+        targets,
+    )
 
 
 def _select_alpha(rows: list[Row], features: list[str]) -> float:
@@ -880,16 +1137,47 @@ def _context_matrix(rows: list[Row]) -> FloatArray:
     )
 
 
-def _trailing_mae_matrix(predictions: FloatArray, outcomes: FloatArray) -> FloatArray:
+def _trailing_mae_matrix(
+    predictions: FloatArray, outcomes: FloatArray, quarter_ids: list[str]
+) -> FloatArray:
+    """Return MAEs using prior quarters only, never earlier states in the same quarter."""
+    if len(predictions) != len(outcomes) or len(predictions) != len(quarter_ids):
+        raise ValueError("trailing MAE inputs must have equal row counts")
     result = np.empty_like(predictions)
     running = np.ones(4, dtype=np.float64)
-    for index in range(len(predictions)):
-        result[index] = running
-        running = np.mean(np.abs(predictions[: index + 1] - outcomes[: index + 1, None]), axis=0)
+    historical_indexes: list[int] = []
+    for quarter in sorted(set(quarter_ids)):
+        current_indexes = [index for index, value in enumerate(quarter_ids) if value == quarter]
+        result[current_indexes] = running
+        historical_indexes.extend(current_indexes)
+        running = np.mean(
+            np.abs(
+                predictions[historical_indexes]
+                - outcomes[np.asarray(historical_indexes, dtype=np.int_), None]
+            ),
+            axis=0,
+        )
     return result
 
 
 def _metrics(predictions: list[Row]) -> Json:
+    """Report overall and required grouped metrics without changing model selection."""
+    return {
+        "overall": _metric_group(predictions),
+        "by_forecast_origin": _grouped_metrics(predictions, "forecast_origin"),
+        "by_state": _grouped_metrics(predictions, "state_fips"),
+        "by_census_division": _grouped_metrics(predictions, "census_division"),
+    }
+
+
+def _grouped_metrics(predictions: list[Row], field: str) -> Json:
+    return {
+        value: _metric_group([row for row in predictions if row[field] == value])
+        for value in sorted({cast(str, row[field]) for row in predictions})
+    }
+
+
+def _metric_group(predictions: list[Row]) -> Json:
     result: Json = {}
     for model_id in sorted({cast(str, row["model_id"]) for row in predictions}):
         rows = [row for row in predictions if row["model_id"] == model_id]

@@ -27,6 +27,7 @@
     "bea": {"publisher": "U.S. Bureau of Economic Analysis", "required_host": "bea.gov", "datasets": ["SQGDP9", "SQINC1"], "vintage_policy": "archived_release_on_or_before_origin"},
     "fhfa": {"publisher": "Federal Housing Finance Agency", "required_host": "fhfa.gov", "series": "seasonally_adjusted_purchase_only_state_hpi", "vintage_policy": "archived_quarterly_report"}
   },
+  "fhfa_admission": {"required_layout_flags": ["expected_headings", "numeric_values", "warning_text_preserved", "manual_samples_verified"], "required_row_count": 51, "required_tool": "pdftotext -layout"},
   "experts": [
     {"id": "labor", "numeric_features": ["qcew_employment_yoy", "qcew_employment_qoq", "qcew_employment_yoy_lag1"]},
     {"id": "business", "numeric_features": ["qcew_establishments_yoy", "qcew_total_wages_yoy"]},
@@ -37,6 +38,9 @@
   "ridge": {"alphas": [0.01, 0.1, 1.0, 10.0, 100.0], "solver": "cholesky", "float": "float64", "inner_validation_quarters": 4, "tie_break": "larger_alpha"},
   "stack": {"step": 0.05, "objective": "mean_squared_error", "constraints": "nonnegative_sum_one", "tie_break": "lexicographic_expert_order"},
   "neural_gate": {"seed": 42, "hidden_units": 16, "activation": "tanh", "output": "softmax", "optimizer": "adam", "learning_rate": 0.01, "max_epochs": 500, "validation_quarters": 4, "patience": 30, "minimum_oof_quarters": 8},
+  "intervals": {"coverage": 0.8, "calibration": "model_specific_trailing_absolute_residuals", "quantile": "nearest_rank"},
+  "reporting": {"models": ["labor", "business", "growth", "housing", "zero", "latest_qcew_yoy", "pooled_ridge", "equal_weight", "inverse_mae", "convex_stack", "neural_gate"], "groups": ["overall", "by_forecast_origin", "by_state", "by_census_division"], "expert_contributions": true},
+  "manifest": {"required_sections": ["artifacts", "environment", "git", "settings", "metrics", "exclusions", "claims"]},
   "serialization": {"encoding": "utf-8", "line_ending": "lf", "csv_header": true, "row_order": ["forecast_origin", "state_fips"], "float_format": ".10f", "json": "sorted_keys_compact_lf"},
   "tolerances": {"deterministic_absolute": 0.000001, "neural_weight_sum_absolute": 0.000001},
   "claims": {"description": "point-in-time historical backtest", "causal": false, "recession": false, "trading": false, "financial_advice": false},
