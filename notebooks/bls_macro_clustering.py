@@ -132,8 +132,8 @@ def _(analysis, diagnostics, mo):
         f"""
 ## Descriptive model output
 
-Fixed seed: `{analysis.metrics.seed}` · repeated starts:
-`{analysis.metrics.n_init}` · inertia: `{analysis.metrics.inertia:.4f}` ·
+Fixed seed: `{analysis.metrics.seed}` | repeated starts:
+`{analysis.metrics.n_init}` | inertia: `{analysis.metrics.inertia:.4f}` |
 silhouette: `{analysis.metrics.silhouette:.4f}`
 
 The diagnostics compare separation and label-invariant stability. They do

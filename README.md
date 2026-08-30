@@ -7,7 +7,7 @@ explicit source, provenance, validation, and claim boundaries.
 
 The first experiment recreates the sibling Elixir analysis in Python: it asks
 whether K-means separates recurring combinations of observed U.S. CPI
-inflation and unemployment in a fixed 2006–2025 sample.
+inflation and unemployment in a fixed 2006-2025 sample.
 
 The runtime retrieves first-party BLS data, derives 12-month CPI-U inflation
 with Polars, standardizes both features in a scikit-learn pipeline, fits
@@ -121,6 +121,21 @@ verified output from the code and live notebook. The August 16, 2026 Python
 run produced 227 observations, retained the missing October 2025 records, and
 reproduced the Elixir profile groups up to arbitrary cluster-label permutation.
 
+## Run the regional expert ensemble
+
+Use the shared, hash-verified source bundle produced by the Elixir admission
+boundary. Generated artifacts remain under ignored paths.
+
+```bash
+uv run --locked regional-expert-ensemble \
+  --source-bundle data/regional/regional-source-bundle.v1.json \
+  --output-dir artifacts/regional-ensemble/python/v1
+```
+
+This is a point-in-time historical backtest, not a causal, recession, trading,
+or financial-advice claim. See the
+[regional ensemble contract](docs/experiments/regional-expert-ensemble.md).
+
 ## Open the reactive notebook
 
 ```bash
@@ -133,15 +148,15 @@ views. It preserves the same source and claim boundaries as the CLI.
 
 ## Repository contents
 
-- `src/python_data_science/` — BLS retrieval, Polars transformations,
+- `src/python_data_science/`: BLS retrieval, Polars transformations,
   scikit-learn analysis, diagnostics, chart builders, and CLI.
-- `tests/` — synthetic source fixtures and deterministic unit tests.
-- `notebooks/bls_macro_clustering.py` — reactive marimo analysis.
-- `docs/data-sources/` — source terms, provenance, and claim boundaries.
-- `docs/experiments/` — dated executions and bounded interpretations.
-- `docs/research/` — dated Python ecosystem and technique choices.
-- `docs/README.md` — documentation map and cross-language replication boundary.
-- `.github/workflows/ci.yml` — locked Python 3.13/3.14 quality matrix.
+- `tests/`: synthetic source fixtures and deterministic unit tests.
+- `notebooks/bls_macro_clustering.py`: reactive marimo analysis.
+- `docs/data-sources/`: source terms, provenance, and claim boundaries.
+- `docs/experiments/`: dated executions and bounded interpretations.
+- `docs/research/`: dated Python ecosystem and technique choices.
+- `docs/README.md`: documentation map and cross-language replication boundary.
+- `.github/workflows/ci.yml`: locked Python 3.13/3.14 quality matrix.
 
 ## License
 

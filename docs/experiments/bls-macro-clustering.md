@@ -5,7 +5,7 @@ _Executed August 16, 2026 at 20:12:38 UTC._
 ## Question and claim boundary
 
 Can K-means separate recurring combinations of observed U.S. CPI inflation and
-unemployment in a fixed 2006–2025 sample?
+unemployment in a fixed 2006-2025 sample?
 
 This is an ex-post descriptive exercise. The run does not establish causal
 economic regimes, classify recessions, forecast future data, or produce a
@@ -18,8 +18,8 @@ trading or financial-advice signal.
 | Runtime | CPython 3.14.6 |
 | Source | BLS Public Data API |
 | Source series | `CUUR0000SA0`, `LNS14000000` |
-| Requested years | 2006–2025 |
-| Anonymous API windows | 2006–2015, 2016–2025 |
+| Requested years | 2006-2025 |
+| Anonymous API windows | 2006-2015, 2016-2025 |
 | Derived features | 12-month CPI-U change, unemployment-rate level |
 | Standardization | scikit-learn `StandardScaler` population mean and scale |
 | K-means | scikit-learn 1.9.0, k-means++, Lloyd, 3 clusters, seed 42, 20 starts |
@@ -63,11 +63,11 @@ that cluster numbers match between runs.
 
 | k | Mean silhouette | Silhouette range | Mean pairwise ARI | Minimum pairwise ARI | Mean inertia |
 |---:|---:|---:|---:|---:|---:|
-| 2 | 0.4535 | 0.4535–0.4535 | 1.0000 | 1.0000 | 241.1428 |
-| 3 | 0.5236 | 0.5236–0.5236 | 1.0000 | 1.0000 | 129.7056 |
-| 4 | 0.4537 | 0.4537–0.4537 | 1.0000 | 1.0000 | 97.9655 |
-| 5 | 0.4787 | 0.4784–0.4791 | 0.9965 | 0.9941 | 74.4813 |
-| 6 | 0.4955 | 0.4945–0.4970 | 0.9868 | 0.9780 | 55.6608 |
+| 2 | 0.4535 | 0.4535-0.4535 | 1.0000 | 1.0000 | 241.1428 |
+| 3 | 0.5236 | 0.5236-0.5236 | 1.0000 | 1.0000 | 129.7056 |
+| 4 | 0.4537 | 0.4537-0.4537 | 1.0000 | 1.0000 | 97.9655 |
+| 5 | 0.4787 | 0.4784-0.4791 | 0.9965 | 0.9941 | 74.4813 |
+| 6 | 0.4955 | 0.4945-0.4970 | 0.9868 | 0.9780 | 55.6608 |
 
 In this bounded comparison, `k=3` has the highest mean silhouette and identical
 assignments across the tested seeds. That supports using three clusters as a

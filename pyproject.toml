@@ -17,6 +17,7 @@ dependencies = [
 
 [project.scripts]
 bls-macro-clustering = "python_data_science.cli:main"
+regional-expert-ensemble = "python_data_science.regional_cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13"]

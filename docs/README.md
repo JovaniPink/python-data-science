@@ -12,6 +12,7 @@ repository without installing the Python environment.
 | Review the source boundary | [BLS Public Data API source record](data-sources/bls-public-data-api.md) | Series definitions, terms, retrieval behavior, transformations, missing-source treatment, and claim limits |
 | Review the observed result | [Python BLS macro clustering run record](experiments/bls-macro-clustering.md) | The exact executed configuration, observed profiles, sensitivity diagnostics, and bounded interpretation |
 | Reproduce interactively | [BLS macro clustering marimo notebook](../notebooks/bls_macro_clustering.py) | The reactive, executable notebook backed by the repository lockfile |
+| Review the predictive validation contract | [Regional expert ensemble contract](experiments/regional-expert-ensemble.md) | Point-in-time source admission, expanding folds, paired implementations, verifier tolerances, and claim limits |
 
 The root [README](../README.md) remains the operational entry point for setup,
 validation, CLI execution, and opening marimo.
