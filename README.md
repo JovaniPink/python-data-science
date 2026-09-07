@@ -124,7 +124,9 @@ reproduced the Elixir profile groups up to arbitrary cluster-label permutation.
 ## Run the regional expert ensemble
 
 Use the shared, hash-verified source bundle produced by the Elixir admission
-boundary. Generated artifacts remain under ignored paths.
+boundary for v1. For v2, `economic-data-pipeline` owns publisher-byte custody
+and normalization; this repository is an independent model consumer. Generated
+artifacts remain under ignored paths.
 
 ```bash
 uv run --locked regional-expert-ensemble \
