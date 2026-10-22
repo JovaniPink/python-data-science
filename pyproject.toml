@@ -3,7 +3,7 @@ name = "python-data-science"
 version = "0.1.0"
 description = "Rights-aware, reproducible Python data-science experiments"
 readme = "README.md"
-requires-python = ">=3.13,<3.15"
+requires-python = ">=3.15,<3.16"
 license = "MIT"
 authors = [{ name = "Jovani Pink" }]
 dependencies = [
